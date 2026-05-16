@@ -1,7 +1,7 @@
 # Student CRUD REST API
 
 A RESTful API built with Python and Flask to manage student records.
-Built as part of the One2N SRE Bootcamp — Milestone 1.
+Built as part of the One2N SRE Bootcamp — Milestone 1, 2 and 3.
 
 ## Tech Stack
 
@@ -12,16 +12,18 @@ Built as part of the One2N SRE Bootcamp — Milestone 1.
 - Flask-Migrate
 - Pytest
 - Docker
+- Docker Compose
 
-## Local Setup
+## Prerequisites
 
-### Prerequisites
 - Python 3.11+
 - PostgreSQL
 - Git
 - Docker
+- Docker Compose
+- make
 
-### Steps
+## Local Setup (Without Docker)
 
 1. Clone the repository
 
@@ -65,6 +67,53 @@ make run
 
 Server runs at http://localhost:5000
 
+## One-Click Local Setup (Docker Compose)
+
+### Start Everything with One Command
+
+```
+make start-api
+```
+
+This will automatically:
+1. Build the Docker image
+2. Start PostgreSQL container
+3. Run DB migrations
+4. Start API container
+
+Server runs at http://localhost:5000
+
+### Order of Execution (Manual)
+
+If you want to run step by step:
+
+```
+make start-db
+make migrate
+make docker-build
+make start-api
+```
+
+### Stop Everything
+
+```
+make stop-db
+```
+
+## Make Targets
+
+| Command | Description |
+|---------|-------------|
+| make install | Install dependencies |
+| make run | Run API locally |
+| make test | Run unit tests |
+| make migrate | Run DB migrations |
+| make docker-build | Build Docker image |
+| make docker-run | Run API docker container |
+| make start-db | Start DB container |
+| make start-api | Start everything with one command |
+| make stop-db | Stop all containers |
+
 ## API Endpoints
 
 | Method | Endpoint | Description |
@@ -104,20 +153,6 @@ docker build -t student-api:1.0.0 .
 
 ```
 docker run -p 5000:5000 -e DATABASE_URL=postgresql://postgres:postgres@host.docker.internal:5432/student_db -e FLASK_APP=app -e FLASK_ENV=development -e SECRET_KEY=your-secret-key student-api:1.0.0
-```
-
-### Docker Make Commands
-
-Build image:
-
-```
-make docker-build
-```
-
-Run container:
-
-```
-make docker-run DATABASE_URL=postgresql://postgres:postgres@host.docker.internal:5432/student_db FLASK_APP=app FLASK_ENV=development SECRET_KEY=your-secret-key
 ```
 
 ### Image Details
