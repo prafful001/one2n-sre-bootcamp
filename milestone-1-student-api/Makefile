@@ -8,7 +8,10 @@ run:
 
 test:
 	pytest tests/test_students.py -v --timeout=30
-
+	
+lint:
+	flake8 app/ --max-line-length=120
+	
 migrate:
 	docker exec student-db psql -U postgres -d student_db -c "SELECT 1" && \
 	flask db upgrade
