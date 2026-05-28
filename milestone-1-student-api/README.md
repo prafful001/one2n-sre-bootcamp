@@ -1,7 +1,7 @@
-# Student CRUD REST API
+﻿# Student CRUD REST API
 
 A RESTful API built with Python and Flask to manage student records.
-Built as part of the One2N SRE Bootcamp — Milestone 1, 2 and 3.
+Built as part of the One2N SRE Bootcamp â€” Milestone 1, 2 and 3.
 
 ## Tech Stack
 
