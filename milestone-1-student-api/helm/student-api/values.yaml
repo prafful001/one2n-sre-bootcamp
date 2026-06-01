@@ -1,0 +1,28 @@
+﻿replicaCount: 2
+
+image:
+  name: student-api
+  tag: "1.0.0"
+  pullPolicy: Never
+
+namespace: student-api
+
+service:
+  type: NodePort
+  port: 5000
+  targetPort: 5000
+  nodePort: 30081
+
+config:
+  flaskApp: run.py
+  flaskEnv: development
+  databaseUrl: postgresql://postgres:postgres@postgres-service.student-api.svc.cluster.local:5432/student_db
+
+nodeSelector:
+  type: application
+
+externalSecret:
+  refreshInterval: 1h
+  secretStoreName: vault-backend
+  secretStoreKind: SecretStore
+  targetName: db-credentials

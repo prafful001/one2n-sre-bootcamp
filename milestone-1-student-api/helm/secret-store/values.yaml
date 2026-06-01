@@ -1,0 +1,10 @@
+﻿namespace: student-api
+
+vault:
+  server: http://vault.vault.svc.cluster.local:8200
+  path: secret
+  version: v2
+  token: root
+
+secretStore:
+  name: vault-backend

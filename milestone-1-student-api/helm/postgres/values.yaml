@@ -1,0 +1,19 @@
+﻿namespace: student-api
+
+image:
+  name: postgres
+  tag: "15-alpine"
+
+database:
+  name: student_db
+  user: postgres
+
+storage:
+  size: 1Gi
+
+nodeSelector:
+  type: database
+
+service:
+  port: 5432
+  targetPort: 5432
