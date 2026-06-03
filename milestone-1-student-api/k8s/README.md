@@ -1,16 +1,16 @@
-﻿# Milestone 6, 7 and 8 - Kubernetes Setup, Deployment and Helm Charts
+﻿# Milestone 6, 7, 8 and 9 - Kubernetes Setup, Helm Charts and ArgoCD
 
 ## Overview
 Three-node Kubernetes cluster using Minikube for the Student REST API
-production environment with HashiCorp Vault and External Secrets Operator.
-From Milestone 8 onwards, Helm charts are used for all deployments.
+production environment with HashiCorp Vault, External Secrets Operator,
+Helm Charts and ArgoCD for GitOps-based deployments.
 
 ## Cluster Architecture
 | Node | Name | Label | Purpose |
 |------|------|-------|---------|
 | Node A | prod-cluster | type=application | REST API pods |
 | Node B | prod-cluster-m02 | type=database | PostgreSQL database |
-| Node C | prod-cluster-m03 | type=dependent_services | Vault, ESO |
+| Node C | prod-cluster-m03 | type=dependent_services | Vault, ESO, ArgoCD |
 
 ## Prerequisites
 - Minikube
@@ -64,6 +64,59 @@ kubectl get pods -n external-secrets
 
 ### Step 9: Access the API
 minikube service student-api-service -n student-api -p prod-cluster --url
+
+## Milestone 9 - GitOps with ArgoCD
+
+### Step 1: Install ArgoCD
+kubectl create namespace argocd
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml --server-side
+kubectl apply -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/crds/applicationset-crd.yaml --server-side
+
+### Step 2: Wait for ArgoCD pods to be ready
+kubectl get pods -n argocd
+
+### Step 3: Set nodeSelector for ArgoCD pods on Node C
+kubectl patch deployment argocd-server -n argocd --type merge --patch-file node-selector-patch.json
+kubectl patch deployment argocd-repo-server -n argocd --type merge --patch-file node-selector-patch.json
+kubectl patch deployment argocd-dex-server -n argocd --type merge --patch-file node-selector-patch.json
+kubectl patch deployment argocd-applicationset-controller -n argocd --type merge --patch-file node-selector-patch.json
+kubectl patch deployment argocd-notifications-controller -n argocd --type merge --patch-file node-selector-patch.json
+kubectl patch deployment argocd-redis -n argocd --type merge --patch-file node-selector-patch.json
+kubectl patch statefulset argocd-application-controller -n argocd --type merge --patch-file node-selector-patch.json
+
+### Step 4: Get ArgoCD Admin Password
+kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath="{.data.password}" | base64 -d
+
+### Step 5: Access ArgoCD UI
+kubectl port-forward svc/argocd-server -n argocd 8080:443
+Open https://localhost:8080
+Username: admin
+Password: from Step 4
+
+### Step 6: Apply ArgoCD Manifests Declaratively
+kubectl apply -f argocd/projects/student-api-project.yaml
+kubectl apply -f argocd/apps/secret-store-app.yaml
+kubectl apply -f argocd/apps/postgres-app.yaml
+kubectl apply -f argocd/apps/student-api-app.yaml
+
+### Step 7: Verify ArgoCD Apps
+kubectl get applications -n argocd
+
+## ArgoCD Directory Structure
+argocd/
+- install/argocd-install.yaml     ArgoCD namespace and config
+- projects/student-api-project.yaml  ArgoCD AppProject
+- apps/student-api-app.yaml       ArgoCD Application for API
+- apps/postgres-app.yaml          ArgoCD Application for PostgreSQL
+- apps/secret-store-app.yaml      ArgoCD Application for SecretStore
+
+## How GitOps Works
+1. Developer pushes code to GitHub
+2. GitHub Actions runs tests, builds Docker image with git SHA tag
+3. GitHub Actions updates image tag in helm/student-api/values.yaml
+4. GitHub Actions commits and pushes the updated values.yaml
+5. ArgoCD detects the change in GitHub
+6. ArgoCD auto-syncs and deploys new version to Kubernetes
 
 ## Helm Charts Structure
 | Chart | Description |
