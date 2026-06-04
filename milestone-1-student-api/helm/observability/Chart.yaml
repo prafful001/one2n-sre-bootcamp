@@ -1,0 +1,21 @@
+﻿apiVersion: v2
+name: observability
+description: Observability stack - Prometheus, Loki, Grafana, Promtail
+type: application
+version: 1.0.0
+dependencies:
+  - name: kube-prometheus-stack
+    version: "61.3.2"
+    repository: https://prometheus-community.github.io/helm-charts
+  - name: loki
+    version: "6.6.2"
+    repository: https://grafana.github.io/helm-charts
+  - name: promtail
+    version: "6.16.4"
+    repository: https://grafana.github.io/helm-charts
+  - name: prometheus-blackbox-exporter
+    version: "9.0.0"
+    repository: https://prometheus-community.github.io/helm-charts
+  - name: prometheus-postgres-exporter
+    version: "6.3.0"
+    repository: https://prometheus-community.github.io/helm-charts

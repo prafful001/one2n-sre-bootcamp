@@ -1,16 +1,14 @@
-﻿# Milestone 6, 7, 8 and 9 - Kubernetes Setup, Helm Charts and ArgoCD
+﻿# Milestones 6-10 - Kubernetes, Helm, ArgoCD and Observability
 
 ## Overview
-Three-node Kubernetes cluster using Minikube for the Student REST API
-production environment with HashiCorp Vault, External Secrets Operator,
-Helm Charts and ArgoCD for GitOps-based deployments.
+Three-node Kubernetes cluster with full observability stack.
 
 ## Cluster Architecture
 | Node | Name | Label | Purpose |
 |------|------|-------|---------|
-| Node A | prod-cluster | type=application | REST API pods |
-| Node B | prod-cluster-m02 | type=database | PostgreSQL database |
-| Node C | prod-cluster-m03 | type=dependent_services | Vault, ESO, ArgoCD |
+| Node A | prod-cluster | type=application | REST API |
+| Node B | prod-cluster-m02 | type=database | PostgreSQL |
+| Node C | prod-cluster-m03 | type=dependent_services | Vault, ESO, ArgoCD, Observability |
 
 ## Prerequisites
 - Minikube
@@ -31,101 +29,60 @@ kubectl apply -f k8s/secret-store.yaml
 kubectl apply -f k8s/application.yaml
 
 ## Milestone 8 - Deploy using Helm Charts
-
-### Step 1: Add Helm Repos
 helm repo add hashicorp https://helm.releases.hashicorp.com
 helm repo add external-secrets https://charts.external-secrets.io
 helm repo update
-
-### Step 2: Install Vault
 helm upgrade --install vault helm/vault --namespace vault --create-namespace
-
-### Step 3: Install External Secrets Operator
-helm upgrade --install external-secrets external-secrets/external-secrets --namespace external-secrets --create-namespace --set installCRDs=true --set nodeSelector.type=dependent_services
-
-### Step 4: Configure Vault
+helm upgrade --install external-secrets external-secrets/external-secrets --namespace external-secrets --create-namespace --set installCRDs=true
 kubectl exec -it vault-0 -n vault -- vault kv put secret/student-api db_password="postgres" secret_key="your-secret-key" db_url="postgresql://postgres:postgres@postgres-service.student-api.svc.cluster.local:5432/student_db"
 kubectl create secret generic vault-token --from-literal=token=root -n student-api
-
-### Step 5: Install Secret Store
 helm upgrade --install secret-store helm/secret-store --namespace student-api --create-namespace
-
-### Step 6: Install PostgreSQL
 helm upgrade --install postgres helm/postgres --namespace student-api
-
-### Step 7: Install Student API
 helm upgrade --install student-api helm/student-api --namespace student-api
 
-### Step 8: Verify Everything
-helm list -A
-kubectl get pods -n student-api
-kubectl get pods -n vault
-kubectl get pods -n external-secrets
-
-### Step 9: Access the API
-minikube service student-api-service -n student-api -p prod-cluster --url
-
 ## Milestone 9 - GitOps with ArgoCD
-
-### Step 1: Install ArgoCD
 kubectl create namespace argocd
 kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml --server-side
-kubectl apply -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/crds/applicationset-crd.yaml --server-side
-
-### Step 2: Wait for ArgoCD pods to be ready
-kubectl get pods -n argocd
-
-### Step 3: Set nodeSelector for ArgoCD pods on Node C
-kubectl patch deployment argocd-server -n argocd --type merge --patch-file node-selector-patch.json
-kubectl patch deployment argocd-repo-server -n argocd --type merge --patch-file node-selector-patch.json
-kubectl patch deployment argocd-dex-server -n argocd --type merge --patch-file node-selector-patch.json
-kubectl patch deployment argocd-applicationset-controller -n argocd --type merge --patch-file node-selector-patch.json
-kubectl patch deployment argocd-notifications-controller -n argocd --type merge --patch-file node-selector-patch.json
-kubectl patch deployment argocd-redis -n argocd --type merge --patch-file node-selector-patch.json
-kubectl patch statefulset argocd-application-controller -n argocd --type merge --patch-file node-selector-patch.json
-
-### Step 4: Get ArgoCD Admin Password
-kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath="{.data.password}" | base64 -d
-
-### Step 5: Access ArgoCD UI
-kubectl port-forward svc/argocd-server -n argocd 8080:443
-Open https://localhost:8080
-Username: admin
-Password: from Step 4
-
-### Step 6: Apply ArgoCD Manifests Declaratively
 kubectl apply -f argocd/projects/student-api-project.yaml
 kubectl apply -f argocd/apps/secret-store-app.yaml
 kubectl apply -f argocd/apps/postgres-app.yaml
 kubectl apply -f argocd/apps/student-api-app.yaml
+kubectl apply -f argocd/apps/observability-app.yaml
 
-### Step 7: Verify ArgoCD Apps
-kubectl get applications -n argocd
+### Access ArgoCD UI
+kubectl port-forward svc/argocd-server -n argocd 8080:443
+Open https://localhost:8080
 
-## ArgoCD Directory Structure
-argocd/
-- install/argocd-install.yaml     ArgoCD namespace and config
-- projects/student-api-project.yaml  ArgoCD AppProject
-- apps/student-api-app.yaml       ArgoCD Application for API
-- apps/postgres-app.yaml          ArgoCD Application for PostgreSQL
-- apps/secret-store-app.yaml      ArgoCD Application for SecretStore
+## Milestone 10 - Observability Stack
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo add grafana https://grafana.github.io/helm-charts
+helm repo update
+helm dependency update helm/observability
+helm upgrade --install observability helm/observability --namespace observability --create-namespace --timeout 10m
 
-## How GitOps Works
-1. Developer pushes code to GitHub
-2. GitHub Actions runs tests, builds Docker image with git SHA tag
-3. GitHub Actions updates image tag in helm/student-api/values.yaml
-4. GitHub Actions commits and pushes the updated values.yaml
-5. ArgoCD detects the change in GitHub
-6. ArgoCD auto-syncs and deploys new version to Kubernetes
+### Note for Minikube
+After first install, fix Loki storage permissions on the node:
+minikube ssh -p prod-cluster -n prod-cluster-m03 -- "sudo find /tmp/hostpath-provisioner/observability -type d -exec chmod 777 {} \;"
+kubectl delete pod observability-loki-0 -n observability
 
-## Helm Charts Structure
-| Chart | Description |
-|-------|-------------|
-| helm/student-api | REST API deployment, service, configmap, externalsecret |
-| helm/postgres | PostgreSQL deployment, service, PVC |
-| helm/vault | Wrapper chart for HashiCorp Vault |
-| helm/external-secrets | Wrapper chart for External Secrets Operator |
-| helm/secret-store | SecretStore and vault-token secret |
+### Access Grafana
+minikube service observability-grafana -n observability -p prod-cluster --url
+Username: admin
+Password: admin123
+
+### What's Monitored
+- REST API endpoints (latency, uptime) via Blackbox Exporter
+- ArgoCD server uptime via Blackbox Exporter
+- HashiCorp Vault uptime via Blackbox Exporter
+- PostgreSQL metrics via Prometheus Postgres Exporter
+- Node metrics via Node Exporter
+- Kubernetes metrics via kube-state-metrics
+- Application logs via Promtail to Loki
+
+### Verify in Grafana
+1. Connections -> Data Sources: confirm Prometheus and Loki present
+2. Explore -> Loki -> Code: query {app="student-api"} for application logs
+3. Explore -> Prometheus: query probe_success{job="blackbox-argocd"} for uptime
 
 ## API Endpoints
 | Method | Endpoint | Description |
