@@ -12,6 +12,15 @@ kube-prometheus-stack:
     service:
       type: NodePort
       nodePort: 32000
+    sidecar:
+      dashboards:
+        enabled: true
+        searchNamespace: observability
+        provider:
+          foldersFromFilesStructure: true
+    grafana.ini:
+      dashboards:
+        default_home_dashboard_path: ""
     dashboardProviders:
       dashboardproviders.yaml:
         apiVersion: 1
