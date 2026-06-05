@@ -1,0 +1,8 @@
+﻿vault:
+  server:
+    dev:
+      enabled: true
+    nodeSelector:
+      type: dependent_services
+  injector:
+    enabled: false
