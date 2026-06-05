@@ -1,0 +1,358 @@
+kube-prometheus-stack:
+  grafana:
+    enabled: true
+    adminPassword: admin123
+    nodeSelector:
+      type: dependent_services
+    additionalDataSources:
+      - name: Loki
+        type: loki
+        url: http://observability-loki:3100
+        access: proxy
+    service:
+      type: NodePort
+      nodePort: 32000
+    sidecar:
+      dashboards:
+        enabled: true
+        searchNamespace: observability
+        provider:
+          foldersFromFilesStructure: true
+    grafana.ini:
+      dashboards:
+        default_home_dashboard_path: ""
+    dashboardProviders:
+      dashboardproviders.yaml:
+        apiVersion: 1
+        providers:
+          - name: default
+            orgId: 1
+            folder: ''
+            type: file
+            disableDeletion: false
+            editable: true
+            options:
+              path: /var/lib/grafana/dashboards/default
+    dashboards:
+      default:
+        node-exporter:
+          gnetId: 1860
+          revision: 37
+          datasource: Prometheus
+        kube-state-metrics:
+          gnetId: 13332
+          revision: 12
+          datasource: Prometheus
+        blackbox-exporter:
+          gnetId: 7587
+          revision: 3
+          datasource: Prometheus
+        postgres:
+          gnetId: 9628
+          revision: 7
+          datasource: Prometheus
+        loki-logs:
+          gnetId: 13639
+          revision: 2
+          datasource: Loki
+
+  prometheus:
+    prometheusSpec:
+      nodeSelector:
+        type: dependent_services
+      additionalScrapeConfigs:
+        - job_name: blackbox-argocd
+          metrics_path: /probe
+          params:
+            module: [http_2xx]
+          static_configs:
+            - targets:
+                - http://argocd-server.argocd.svc.cluster.local:80
+                - http://vault.vault.svc.cluster.local:8200
+                - http://student-api-service.student-api.svc.cluster.local:5000/api/v1/students
+          relabel_configs:
+            - source_labels: [__address__]
+              target_label: __param_target
+            - source_labels: [__param_target]
+              target_label: instance
+            - target_label: __address__
+              replacement: observability-prometheus-blackbox-exporter:9115
+        - job_name: postgres-exporter
+          static_configs:
+            - targets:
+                - observability-prometheus-postgres-exporter:9187
+
+  alertmanager:
+    enabled: true
+    config:
+      global:
+        slack_api_url_secret:
+        name: alertmanager-slack-webhook
+        key: slack_api_url
+      route:
+        group_by: ['alertname', 'job']
+        group_wait: 30s
+        group_interval: 5m
+        repeat_interval: 12h
+        receiver: slack
+      receivers:
+        - name: slack
+          slack_configs:
+            - channel: '#alerts'
+              send_resolved: true
+              title: 'Alert: {{ .CommonLabels.alertname }}'
+              text: 'Summary: {{ .CommonAnnotations.summary }} Description: {{ .CommonAnnotations.description }}'
+    alertmanagerSpec:
+      nodeSelector:
+        type: dependent_services
+
+  additionalPrometheusRulesMap:
+    custom-alerts:
+      groups:
+        - name: node-alerts
+          rules:
+            - alert: HighCPUUsage
+              expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+              for: 5m
+              labels:
+                severity: warning
+              annotations:
+                summary: High CPU usage detected
+                description: CPU usage is above 80% for 5 minutes
+
+            - alert: HighDiskUsage
+              expr: (node_filesystem_size_bytes{fstype!="tmpfs"} - node_filesystem_free_bytes{fstype!="tmpfs"}) / node_filesystem_size_bytes{fstype!="tmpfs"} * 100 > 80
+              for: 5m
+              labels:
+                severity: warning
+              annotations:
+                summary: High disk usage detected
+                description: Disk usage is above 80%
+
+        - name: application-alerts
+          rules:
+            - alert: HighErrorRate
+              expr: sum(rate(flask_http_request_total{status=~"5.."}[10m])) / sum(rate(flask_http_request_total[10m])) * 100 > 5
+              for: 2m
+              labels:
+                severity: critical
+              annotations:
+                summary: High error rate in student-api
+                description: Error rate is above 5% in the last 10 mins
+
+            - alert: HighRequestRate
+              expr: sum(rate(flask_http_request_total[5m])) > 100
+              for: 2m
+              labels:
+                severity: warning
+              annotations:
+                summary: High request rate in student-api
+                description: Request rate exceeded 100 req/s
+
+            - alert: HighP90Latency
+              expr: histogram_quantile(0.90, sum(rate(flask_http_request_duration_seconds_bucket[5m])) by (le)) > 1
+              for: 5m
+              labels:
+                severity: warning
+              annotations:
+                summary: High p90 latency in student-api
+                description: p90 latency exceeded 1s
+
+            - alert: HighP95Latency
+              expr: histogram_quantile(0.95, sum(rate(flask_http_request_duration_seconds_bucket[5m])) by (le)) > 2
+              for: 5m
+              labels:
+                severity: warning
+              annotations:
+                summary: High p95 latency in student-api
+                description: p95 latency exceeded 2s
+
+            - alert: HighP99Latency
+              expr: histogram_quantile(0.99, sum(rate(flask_http_request_duration_seconds_bucket[5m])) by (le)) > 5
+              for: 5m
+              labels:
+                severity: critical
+              annotations:
+                summary: High p99 latency in student-api
+                description: p99 latency exceeded 5s
+
+        - name: service-restart-alerts
+          rules:
+            - alert: PostgresRestarted
+              expr: kube_pod_container_status_restarts_total{namespace="student-api", pod=~"postgres.*"} > 0
+              for: 1m
+              labels:
+                severity: critical
+              annotations:
+                summary: PostgreSQL pod restarted
+                description: PostgreSQL pod has restarted
+
+            - alert: VaultRestarted
+              expr: kube_pod_container_status_restarts_total{namespace="vault", pod=~"vault.*"} > 0
+              for: 1m
+              labels:
+                severity: critical
+              annotations:
+                summary: Vault pod restarted
+                description: Vault pod has restarted
+
+            - alert: ArgoCDRestarted
+              expr: kube_pod_container_status_restarts_total{namespace="argocd", pod=~"argocd-server.*"} > 0
+              for: 1m
+              labels:
+                severity: critical
+              annotations:
+                summary: ArgoCD server pod restarted
+                description: ArgoCD server pod has restarted
+
+        - name: blackbox-alerts
+          rules:
+            - alert: EndpointDown
+              expr: probe_success == 0
+              for: 2m
+              labels:
+                severity: critical
+              annotations:
+                summary: Endpoint is down
+                description: An endpoint has been down for 2 minutes
+
+  nodeExporter:
+    enabled: true
+    tolerations:
+      - operator: Exists
+  kubeStateMetrics:
+    enabled: true
+    nodeSelector:
+      type: dependent_services
+  prometheusOperator:
+    nodeSelector:
+      type: dependent_services
+
+loki:
+  deploymentMode: SingleBinary
+  loki:
+    auth_enabled: false
+    commonConfig:
+      replication_factor: 1
+    storage:
+      type: filesystem
+    schemaConfig:
+      configs:
+        - from: "2024-01-01"
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: index_
+            period: 24h
+    ruler:
+      enable_api: false
+      storage:
+        type: local
+        local:
+          directory: /var/loki/rules
+  singleBinary:
+    replicas: 1
+    nodeSelector:
+      type: dependent_services
+    podSecurityContext:
+      fsGroup: 10001
+      runAsGroup: 10001
+      runAsNonRoot: true
+      runAsUser: 10001
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClass: standard
+  chunksCache:
+    enabled: false
+  resultsCache:
+    enabled: false
+  backend:
+    replicas: 0
+  read:
+    replicas: 0
+  write:
+    replicas: 0
+
+promtail:
+  defaultVolumes:
+    - name: run
+      hostPath:
+        path: /run/promtail
+    - name: containers
+      hostPath:
+        path: /var/lib/docker/containers
+    - name: pods
+      hostPath:
+        path: /var/log/pods
+  defaultVolumeMounts:
+    - name: run
+      mountPath: /run/promtail
+    - name: containers
+      mountPath: /var/lib/docker/containers
+      readOnly: true
+    - name: pods
+      mountPath: /var/log/pods
+      readOnly: true
+  readinessProbe:
+    failureThreshold: 100
+    httpGet:
+      path: /ready
+      port: http-metrics
+    initialDelaySeconds: 30
+    periodSeconds: 10
+  config:
+    clients:
+      - url: http://observability-loki:3100/loki/api/v1/push
+    snippets:
+      scrapeConfigs: |
+        - job_name: kubernetes-pods
+          kubernetes_sd_configs:
+            - role: pod
+          pipeline_stages:
+            - docker: {}
+            - match:
+                selector: '{app!="student-api"}'
+                action: drop
+          relabel_configs:
+            - source_labels: [__meta_kubernetes_pod_node_name]
+              target_label: __host__
+            - action: labelmap
+              regex: __meta_kubernetes_pod_label_(.+)
+            - source_labels: [__meta_kubernetes_namespace]
+              target_label: namespace
+            - source_labels: [__meta_kubernetes_pod_name]
+              target_label: pod
+            - source_labels: [__meta_kubernetes_pod_container_name]
+              target_label: container
+            - replacement: /var/log/pods/*$1/*.log
+              separator: /
+              source_labels:
+                - __meta_kubernetes_pod_uid
+                - __meta_kubernetes_pod_container_name
+              target_label: __path__
+
+prometheus-blackbox-exporter:
+  nodeSelector:
+    type: dependent_services
+  config:
+    modules:
+      http_2xx:
+        prober: http
+        timeout: 5s
+        http:
+          valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+          valid_status_codes: []
+          method: GET
+
+prometheus-postgres-exporter:
+  nodeSelector:
+    type: dependent_services
+  config:
+    datasource:
+      host: postgres-service.student-api.svc.cluster.local
+      user: postgres
+      password: postgres
+      database: student_db
+      sslmode: disable

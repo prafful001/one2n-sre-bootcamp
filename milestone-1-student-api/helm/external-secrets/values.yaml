@@ -1,0 +1,4 @@
+﻿external-secrets:
+  nodeSelector:
+    type: dependent_services
+  installCRDs: true
